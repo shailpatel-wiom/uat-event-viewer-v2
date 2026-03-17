@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wiom UAT - Event Viewer</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e0e0e8;
+    --muted: #6b7080;
+    --ct: #e84855;
+    --ct-bg: rgba(232,72,85,0.1);
+    --fb: #f59e0b;
+    --fb-bg: rgba(245,158,11,0.1);
+    --meta: #3b82f6;
+    --meta-bg: rgba(59,130,246,0.1);
+    --branch: #10b981;
+    --branch-bg: rgba(16,185,129,0.1);
+    --accent: #818cf8;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+  header h1 span { color: var(--ct); }
+
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #ef4444; }
+  .status.connected .dot { background: #22c55e; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+    align-items: center;
+  }
+  .sdk-filter {
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sdk-filter:hover { border-color: var(--text); color: var(--text); }
+  .sdk-filter.active { color: #fff; }
+  .sdk-filter.active[data-sdk="clevertap"] { background: var(--ct); border-color: var(--ct); }
+  .sdk-filter.active[data-sdk="firebase"]  { background: var(--fb); border-color: var(--fb); color: #000; }
+  .sdk-filter.active[data-sdk="meta"]      { background: var(--meta); border-color: var(--meta); }
+  .sdk-filter.active[data-sdk="branch"]    { background: var(--branch); border-color: var(--branch); }
+
+  .search-box {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 13px;
+    width: 200px;
+    outline: none;
+  }
+  .search-box:focus { border-color: var(--accent); }
+  .search-box::placeholder { color: var(--muted); }
+
+  .btn {
+    padding: 5px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--text); color: var(--text); }
+  .btn-clear:hover { border-color: #ef4444; color: #ef4444; }
+  .btn-download:hover { border-color: var(--accent); color: var(--accent); }
+
+  .counter { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .counter b { color: var(--text); }
+
+  /* --- Table --- */
+  .table-header {
+    display: grid;
+    grid-template-columns: 72px 84px 1fr;
+    gap: 12px;
+    padding: 8px 36px 8px 12px;
+    margin: 0 24px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #events {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 24px;
+  }
+  #events::-webkit-scrollbar { width: 6px; }
+  #events::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .event-row {
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .event-row:hover { background: rgba(255,255,255,0.03); }
+  .event-row.expanded { background: rgba(255,255,255,0.02); }
+
+  .event-summary {
+    display: grid;
+    grid-template-columns: 72px 84px 1fr;
+    gap: 12px;
+    padding: 10px 12px;
+    align-items: center;
+  }
+
+  .event-ts {
+    color: var(--muted);
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+  }
+  .event-sdk {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-align: center;
+    width: fit-content;
+  }
+  .event-sdk.clevertap { color: var(--ct); background: var(--ct-bg); }
+  .event-sdk.firebase   { color: var(--fb); background: var(--fb-bg); }
+  .event-sdk.meta       { color: var(--meta); background: var(--meta-bg); }
+  .event-sdk.branch     { color: var(--branch); background: var(--branch-bg); }
+
+  .event-name { font-weight: 500; word-break: break-word; }
+  .event-name .prop-count {
+    font-weight: 400;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: 8px;
+  }
+
+  .event-props {
+    display: none;
+    margin: 0 12px 10px 12px;
+    padding: 12px 16px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .event-row.expanded .event-props { display: block; }
+
+  .prop-row {
+    display: grid;
+    grid-template-columns: minmax(140px, auto) 1fr;
+    gap: 8px;
+  }
+  .prop-key { color: var(--accent); white-space: nowrap; }
+  .prop-val { color: var(--text); word-break: break-all; }
+  .prop-empty { color: var(--muted); font-style: italic; opacity: 0.6; }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 60%;
+    color: var(--muted);
+    gap: 12px;
+  }
+  .empty-state .icon { font-size: 48px; opacity: 0.3; }
+  .empty-state p { font-size: 14px; }
+
+  .scroll-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 24px;
+    padding: 8px 16px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Wiom UAT <span>Event Viewer</span></h1>
+  <div class="status" id="status"><div class="dot"></div><span>Connecting...</span></div>
+  <div class="counter" id="counter"><b>0</b> events</div>
+  <div class="controls">
+    <button class="sdk-filter active" data-sdk="clevertap">CleverTap</button>
+    <button class="sdk-filter active" data-sdk="firebase">Firebase</button>
+    <button class="sdk-filter active" data-sdk="meta">Meta</button>
+    <button class="sdk-filter active" data-sdk="branch">Branch</button>
+    <input class="search-box" id="search" type="text" placeholder="Filter events...">
+    <button class="btn btn-download" id="downloadBtn">Download JSON</button>
+    <button class="btn btn-clear" id="clearBtn">Clear</button>
+  </div>
+</header>
+
+<div class="table-header">
+  <div>Time</div>
+  <div>SDK</div>
+  <div>Event Name</div>
+</div>
+
+<div id="events">
+  <div class="empty-state" id="emptyState">
+    <div class="icon">.</div>
+    <p>Waiting for events from the emulator...</p>
+    <p style="font-size:12px">Make sure the emulator is running and the Wiom app is open</p>
+  </div>
+</div>
+
+<div class="scroll-indicator" id="scrollBtn">New events</div>
+
+<script>
+const eventsEl = document.getElementById('events');
+const emptyState = document.getElementById('emptyState');
+const statusEl = document.getElementById('status');
+const counterEl = document.getElementById('counter');
+const searchEl = document.getElementById('search');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const scrollBtn = document.getElementById('scrollBtn');
+
+let allEvents = [];
+let activeSDKs = new Set(['clevertap', 'firebase', 'meta', 'branch']);
+let autoScroll = true;
+
+// --- SSE ---
+function connect() {
+  const es = new EventSource('/events');
+  es.onopen = () => {
+    statusEl.className = 'status connected';
+    statusEl.querySelector('span').textContent = 'Connected';
+  };
+  es.onerror = () => {
+    statusEl.className = 'status';
+    statusEl.querySelector('span').textContent = 'Disconnected - retrying...';
+  };
+  es.onmessage = (msg) => {
+    const event = JSON.parse(msg.data);
+    allEvents.push(event);
+    counterEl.innerHTML = `<b>${allEvents.length}</b> events`;
+    if (emptyState.parentNode) emptyState.remove();
+    if (shouldShow(event)) {
+      appendEventRow(event);
+      if (autoScroll) eventsEl.scrollTop = eventsEl.scrollHeight;
+      else scrollBtn.style.display = 'block';
+    }
+  };
+}
+
+function shouldShow(ev) {
+  if (!activeSDKs.has(ev.sdk)) return false;
+  const q = searchEl.value.toLowerCase();
+  if (q && !ev.event.toLowerCase().includes(q) && !JSON.stringify(ev.props).toLowerCase().includes(q)) return false;
+  return true;
+}
+
+function appendEventRow(ev) {
+  const row = document.createElement('div');
+  row.className = 'event-row';
+
+  const propCount = ev.props ? Object.keys(ev.props).length : 0;
+  const countLabel = propCount > 0 ? `(${propCount} props)` : '';
+
+  let propsHTML = '';
+  if (propCount > 0) {
+    propsHTML = Object.entries(ev.props)
+      .map(([k, v]) => `<div class="prop-row"><span class="prop-key">${esc(k)}</span><span class="prop-val">${esc(String(v))}</span></div>`)
+      .join('');
+  } else {
+    propsHTML = '<span class="prop-empty">No properties</span>';
+  }
+
+  row.innerHTML = `
+    <div class="event-summary">
+      <div class="event-ts">${esc(ev.ts)}</div>
+      <div class="event-sdk ${ev.sdk}">${esc(ev.sdk)}</div>
+      <div class="event-name">${esc(ev.event)}<span class="prop-count">${countLabel}</span></div>
+    </div>
+    <div class="event-props">${propsHTML}</div>
+  `;
+  row.querySelector('.event-summary').onclick = () => row.classList.toggle('expanded');
+  eventsEl.appendChild(row);
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function rerender() {
+  eventsEl.innerHTML = '';
+  if (allEvents.length === 0) { eventsEl.appendChild(emptyState); return; }
+  allEvents.filter(shouldShow).forEach(appendEventRow);
+  if (autoScroll) eventsEl.scrollTop = eventsEl.scrollHeight;
+}
+
+// --- SDK filters ---
+document.querySelectorAll('.sdk-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const sdk = btn.dataset.sdk;
+    btn.classList.toggle('active');
+    if (activeSDKs.has(sdk)) activeSDKs.delete(sdk); else activeSDKs.add(sdk);
+    rerender();
+  });
+});
+
+// --- Search ---
+searchEl.addEventListener('input', () => rerender());
+
+// --- Clear ---
+clearBtn.addEventListener('click', () => {
+  allEvents = [];
+  counterEl.innerHTML = `<b>0</b> events`;
+  eventsEl.innerHTML = '';
+  eventsEl.appendChild(emptyState);
+});
+
+// --- Download JSON ---
+downloadBtn.addEventListener('click', () => {
+  const visible = allEvents.filter(shouldShow);
+  // Clean export: only event name, properties, sdk, and timestamp
+  const exportData = visible.map(ev => ({
+    timestamp: ev.ts,
+    sdk: ev.sdk,
+    event: ev.event,
+    properties: ev.props || {}
+  }));
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0,10);
+  const timeStr = now.toTimeString().slice(0,8).replace(/:/g, '-');
+  a.href = url;
+  a.download = `wiom-events-${dateStr}_${timeStr}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// --- Auto-scroll ---
+eventsEl.addEventListener('scroll', () => {
+  const atBottom = eventsEl.scrollHeight - eventsEl.scrollTop - eventsEl.clientHeight < 60;
+  autoScroll = atBottom;
+  if (atBottom) scrollBtn.style.display = 'none';
+});
+scrollBtn.addEventListener('click', () => {
+  eventsEl.scrollTop = eventsEl.scrollHeight;
+  autoScroll = true;
+  scrollBtn.style.display = 'none';
+});
+
+connect();
+</script>
+</body>
+</html>
